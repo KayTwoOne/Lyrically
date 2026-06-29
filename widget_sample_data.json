@@ -1,0 +1,28 @@
+{
+  "_how_to_use": [
+    "This mirrors the editor's 'Sample Data' tab (Key / Type / Value rows).",
+    "For each entry in 'fields' below: click '+ Add Field', type the Key, pick the Type",
+    "from the dropdown (String / Number / Media), and set the Value. Then 'Generate JSON'.",
+    "These are the live User Data fields the script pushes. The STATIC 'Add Widget Preview'",
+    "fields are NOT entered here (those are Custom Strings set in that surface directly).",
+    "MEDIA fields here do NOT accept a URL: click 'Choose Image' and upload a local image",
+    "(use the included sample_album_art.png). This is PREVIEW-ONLY. The LIVE widget still",
+    "gets real album art from Spotify as a URL via the script (type 3 {url}) — URLs work live.",
+    "You don't need every field — only the Keys you actually used in Widget Top/Bottom.",
+    "Values here are just demo data so the preview renders; change them to anything."
+  ],
+  "fields": [
+    { "key": "track",        "type": "String", "value": "It's Not Like That Anymore" },
+    { "key": "artist",       "type": "String", "value": "Tiffany Day" },
+    { "key": "album",        "type": "String", "value": "HALO" },
+    { "key": "album_art",    "type": "Media",  "value": "UPLOAD via 'Choose Image' -> sample_album_art.png  (no URL here; live art is a Spotify URL from the script)" },
+    { "key": "lyric",        "type": "String", "value": "You'd think at this point I've learned it's never that personal" },
+    { "key": "lyric_prev",   "type": "String", "value": "I keep replaying every word you said" },
+    { "key": "lyric_next",   "type": "String", "value": "But I'm not gonna call you anymore" },
+    { "key": "progress",     "type": "String", "value": "1:23 / 3:45" },
+    { "key": "progress_pct", "type": "Number", "value": 37 },
+    { "key": "progress_sec", "type": "Number", "value": 83 },
+    { "key": "duration_sec", "type": "Number", "value": 225 },
+    { "key": "status",       "type": "String", "value": "▶ Now Playing" }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "discord": {
+    "application_id": "YOUR_DISCORD_APPLICATION_ID",
+    "user_id": "YOUR_DISCORD_USER_ID",
+    "bot_token": "YOUR_DISCORD_BOT_TOKEN"
+  },
+  "spotify": {
+    "client_id": "YOUR_SPOTIFY_CLIENT_ID",
+    "client_secret": "YOUR_SPOTIFY_CLIENT_SECRET",
+    "redirect_uri": "http://127.0.0.1:8888/callback",
+    "refresh_token": ""
+  },
+  "options": {
+    "poll_interval_seconds": 5,
+    "tick_interval_seconds": 0.5,
+    "min_patch_interval_seconds": 0.75,
+    "heartbeat_seconds": 0,
+    "username_format": "{track} — {artist}",
+    "no_lyrics_text": "♪",
+    "instrumental_text": "♪ Instrumental ♪",
+    "show_when_paused": true
+  }
+}
