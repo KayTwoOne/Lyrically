@@ -171,7 +171,7 @@ Spotify; all trademarks belong to their respective owners.
 - Method based on [Chloe Cinders' "How to make Discord Widgets"](https://chloecinders.com/blog/discord-widgets) guide.
 - Profile-injection technique from the **Discord Previews** community.
 - Lyrics from [LRCLIB](https://lrclib.net).
-- Album-art widget-fix algorithm ported from **[D.W.I.F](https://github.com/AjaxFNC-YT/D.W.I.F)** by [AjaxFNC-YT](https://github.com/AjaxFNC-YT).
+- Album-art widget-fix algorithm ported from **[D.W.I.F](https://github.com/AjaxFNC-YT/D.W.I.F)** by [AjaxFNC-YT](https://github.com/AjaxFNC-YT) and [tuning4frames](https://github.com/tuning4frames)
 - Automated setup script (`lyrically-setup.js`) and importable `lyrically_widget_config.json` adapted from **[aamiaa's Widget Creator](https://gist.github.com/aamiaa/7cdd590e3949cd654758bc90bcb4710b)** and the community "Discord Widget Configurator" extension built on it.
 
 ## License
