@@ -22,6 +22,9 @@ widget-image-resizer/
 # ── Local staging copy of the publishable file set (not committed itself) ─
 safe-to-push/
 
+# ── Third-party reference doc (aamiaa's gist) — linked/credited, not vendored ─
+WidgetCreator.md
+
 # ── Python ───────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc

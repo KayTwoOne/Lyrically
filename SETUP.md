@@ -20,6 +20,54 @@ everyone.
 
 ---
 
+## ⚡ Express setup (recommended) — one paste does almost everything
+
+Nearly all of the manual Discord steps below (Parts 1–10) are automated by
+**[`lyrically-setup.js`](lyrically-setup.js)** — a one-paste console script (Discord-API automation
+adapted from [aamiaa's Widget Creator](https://gist.github.com/aamiaa/7cdd590e3949cd654758bc90bcb4710b)).
+It shows a small form, then creates the app, enables the Social SDK, **imports Lyrically's exact
+widget layout** (album art + track/artist/album/lyric + progress bar, already wired to the right
+fields), publishes it, authorizes it, adds it to your profile, resets the bot token, opens the
+editor, and hands you a **filled-in `config.json` to download**.
+
+**You provide:** an app name (optional) + your **Spotify Client ID/Secret**.
+**It fetches for you:** the Discord Application ID, your User ID, the Bot token, and the whole widget structure.
+
+1. **First, get your Spotify keys:** at the
+   [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) create an app, add redirect
+   URI **`http://127.0.0.1:8888/callback`**, and copy its **Client ID** + **Client Secret**.
+   (You can skip this and fill them into `config.json` later.)
+2. Open the **[Discord Developer Portal](https://discord.com/developers/applications)** (logged in) →
+   press **F12** → **Console** tab.
+3. Open **`lyrically-setup.js`**, copy its **entire** contents, paste into the console, press **Enter**.
+4. In the panel (top-right): enter your app name + Spotify keys → **Start setup**. Solve the
+   **captcha / 2FA** if prompted, and watch each step tick green.
+5. Click **⬇ Download config.json** and drop it into your Lyrically folder.
+6. Run `pip install -r requirements.txt`, then **`python get_spotify_token.py`** (fills the last
+   field, the Spotify refresh token) and **`python widget.py`**. Done.
+
+> ⚠️ It runs in the **browser console** — that's the only place with your Discord session — so it's a
+> paste, not a double-click (open the dev portal, press F12 → Console, paste; **do not** run it with
+> `node`). It only calls Discord's own API; read it first if you like. The widget comes out fully
+> shaped, so you normally don't need the editor (it's opened just in case you want to tweak anything).
+
+### Even smoother: a widget-configurator extension
+
+If you use a browser extension that imports/exports widget configs (e.g. the **Discord Widget
+Configurator**, a polished extension built on aamiaa's automation, with proper image uploads and a
+one-click "Create" + "Import"), you can skip the console paste entirely:
+
+1. **Create** a new widget with the extension (it makes the app, adds it to your profile, handles
+   captcha/2FA and the identity).
+2. **Import** the included **[`lyrically_widget_config.json`](lyrically_widget_config.json)** — it's
+   that extension's native format, so it applies Lyrically's exact layout + images in one click.
+3. Put the resulting **Application ID**, **User ID**, and **Bot token** into `config.json` (copy
+   `config.example.json`), add your Spotify keys, and continue from **Part 8**.
+
+Prefer to understand every step, or the script errors out? The full manual walkthrough follows.
+
+---
+
 ## Part 0 — Prerequisites
 
 - **Python 3.9+** and the `requests` library:

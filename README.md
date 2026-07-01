@@ -46,6 +46,11 @@ whatever was last pushed to your profile. All the realtime behaviour lives in [`
 
 ## Getting started
 
+> ⚡ **Fast path:** most of the Discord setup can be done in **one console paste** with
+> [`lyrically-setup.js`](lyrically-setup.js) (it creates the app + widget, adds it to your profile,
+> and downloads a ready `config.json`). See [SETUP.md → Express setup](SETUP.md). The steps below are
+> the full manual route.
+
 > ⏱️ First-time setup takes around 20-30 minutes, mostly the one-time, browser-based Discord
 > configuration. **The full walkthrough is in [SETUP.md](SETUP.md)**; the steps below are the overview.
 
@@ -130,6 +135,8 @@ paused states. See the table in [SETUP.md](SETUP.md).
 | File | Purpose |
 |---|---|
 | `widget.py` | The realtime updater service (poll, lyrics, push). |
+| `lyrically-setup.js` | Optional one-paste browser-console script that automates the whole Discord setup. |
+| `lyrically_widget_config.json` | The widget layout, importable by a widget-configurator extension (or baked into the script above). |
 | `get_spotify_token.py` | One-time Spotify OAuth helper; writes your refresh token. |
 | `config.example.json` | Config template; copy to `config.json` (git-ignored). |
 | `widget_sample_data.json` | Key/Type/Value reference for the editor's Sample Data tab. |
@@ -165,6 +172,7 @@ Spotify; all trademarks belong to their respective owners.
 - Profile-injection technique from the **Discord Previews** community.
 - Lyrics from [LRCLIB](https://lrclib.net).
 - Album-art widget-fix algorithm ported from **[D.W.I.F](https://github.com/AjaxFNC-YT/D.W.I.F)** by [AjaxFNC-YT](https://github.com/AjaxFNC-YT).
+- Automated setup script (`lyrically-setup.js`) and importable `lyrically_widget_config.json` adapted from **[aamiaa's Widget Creator](https://gist.github.com/aamiaa/7cdd590e3949cd654758bc90bcb4710b)** and the community "Discord Widget Configurator" extension built on it.
 
 ## License
 

@@ -503,8 +503,10 @@ def main() -> None:
                         retry = float(resp.headers.get("Retry-After", 5) or 5)
                     except (TypeError, ValueError):
                         retry = 5.0
-                    spotify_backoff_until = now + min(max(retry, 1.0), 300.0)
-                    log(f"Spotify rate limited; backing off {retry:.0f}s (keeping current state).")
+                    wait = min(max(retry, 1.0), 3600.0)   # honour it, but re-check at least hourly
+                    spotify_backoff_until = now + wait
+                    log(f"Spotify rate limited; waiting {wait:.0f}s "
+                        f"(Retry-After: {retry:.0f}s; keeping current state).")
                 else:
                     log(f"Spotify error: {exc}")
 
