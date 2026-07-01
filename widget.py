@@ -478,6 +478,7 @@ def main() -> None:
     sync_mono = time.monotonic()
     is_playing = False
     last_poll = 0.0
+    spotify_backoff_until = 0.0   # skip Spotify polls until here (honours Spotify's Retry-After on 429)
     last_sent = None         # dedupe key for the last pushed state
     last_patch_at = 0.0
     cooldown_until = 0.0     # don't PATCH again until this monotonic time (rate-limit pacing)
@@ -486,16 +487,30 @@ def main() -> None:
     while True:
         now = time.monotonic()
 
-        # 1) Poll Spotify on its own cadence.
-        if now - last_poll >= poll_interval:
+        # 1) Poll Spotify on its own cadence (respecting any Spotify back-off).
+        if now - last_poll >= poll_interval and now >= spotify_backoff_until:
             last_poll = now
+            data = None
+            poll_ok = True
             try:
                 data = spotify.now_playing()
             except requests.RequestException as exc:
-                log(f"Spotify error: {exc}")
-                data = None
+                poll_ok = False
+                resp = getattr(exc, "response", None)
+                if resp is not None and resp.status_code == 429:
+                    # Honour Spotify's Retry-After so we stop hammering during the penalty.
+                    try:
+                        retry = float(resp.headers.get("Retry-After", 5) or 5)
+                    except (TypeError, ValueError):
+                        retry = 5.0
+                    spotify_backoff_until = now + min(max(retry, 1.0), 300.0)
+                    log(f"Spotify rate limited; backing off {retry:.0f}s (keeping current state).")
+                else:
+                    log(f"Spotify error: {exc}")
 
-            if data is None:
+            # Only act on a *successful* poll. On an error we keep the current
+            # track/state instead of flipping the widget to 'nothing playing'.
+            if poll_ok and data is None:
                 track = None
                 current_id = None
                 state = ("idle",)
@@ -510,7 +525,7 @@ def main() -> None:
                         log("Idle — nothing playing.")
                     if cooldown > 0:
                         cooldown_until = now + cooldown
-            else:
+            elif poll_ok:
                 parsed = parse_track(data)
                 if parsed:
                     is_playing = parsed.is_playing
