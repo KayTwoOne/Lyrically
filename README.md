@@ -31,13 +31,13 @@ whatever was last pushed to your profile. All the realtime behaviour lives in [`
 1. **Poll** Spotify for the current track and playback position.
 2. **Fetch** time-synced lyrics for that track from [LRCLIB](https://lrclib.net) (free, no key).
 3. **Track the position locally** with a monotonic clock between polls, re-syncing to kill drift.
-4. **Push** the current lyric line to Discord, only when the line changes, paced under the rate limit.
+4. **Push** the current line to Discord the moment it changes, as fast as Discord's rate-limit bucket allows, keeping a small token reserve so a lyric-dense passage can't stall the widget.
 
 ## Features
 
 - **Live synced lyrics**: the current line updates as the song plays.
 - **Drift-corrected timing**: advances locally and re-syncs from Spotify, so lines stay aligned.
-- **Adaptive rate limiting**: reads Discord's rate-limit headers and paces requests to avoid 429s; never blocks, and always resumes with the *current* line.
+- **Adaptive rate limiting**: reads Discord's live rate-limit headers and sends each new line the instant it changes while there's headroom, gliding only as the bucket runs low and always keeping a reserve so it never bottoms out or halts. It never blocks, and after any 429 it backs off and resumes with the *current* line.
 - **Graceful states**: handles pause, nothing-playing, instrumentals, and tracks with no lyrics.
 - **Now-playing metadata**: track, artist, album, album art, and a song-progress bar.
 - **Optional album-art fix**: reshapes each cover (transparent top strip + rounded top-right corner) so it sits inside the widget frame, hosted via a Discord webhook. Pure-Python port of [D.W.I.F](https://github.com/AjaxFNC-YT/D.W.I.F).
@@ -121,8 +121,9 @@ sits on the host. See **[HOSTING.md](HOSTING.md)** for a secure, step-by-step Wi
 ## Configuration
 
 All runtime behaviour is tunable in `config.json` under `options`: poll/tick cadence, the rate-limit
-floor, an optional `heartbeat_seconds` for smoother progress-bar movement, the `username_format`, and
-placeholder text for no-lyrics / instrumental / paused states. See the table in [SETUP.md](SETUP.md).
+floor and reserve (responsiveness vs. 429 safety margin), an optional `heartbeat_seconds` for smoother
+progress-bar movement, the `username_format`, and placeholder text for no-lyrics / instrumental /
+paused states. See the table in [SETUP.md](SETUP.md).
 
 ## Project structure
 

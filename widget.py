@@ -288,6 +288,7 @@ def fetch_lyrics(track: Track) -> Lyrics:
 class DiscordWidget:
     def __init__(self, cfg: dict):
         dc = cfg["discord"]
+        opt = cfg.get("options", {})
         self.url = (f"{DISCORD_API}/applications/{dc['application_id']}"
                     f"/users/{dc['user_id']}/identities/0/profile")
         self.headers = {
@@ -295,6 +296,13 @@ class DiscordWidget:
             "Content-Type": "application/json",
             "User-Agent": UA_DISCORD,
         }
+        # Keep this many requests in the bucket unspent as a 429 safety buffer. Once
+        # the bucket drops to it, we glide on the reset window instead of firing, so
+        # a busy passage can never bottom out the bucket and halt the widget.
+        self.reserve = max(1, int(opt.get("rate_limit_reserve", 1)))
+        # Log the live rate-limit bucket on every send (so you can see the real
+        # headroom in widget.log). Pacing is always logged regardless.
+        self.log_rate_limits = bool(opt.get("log_rate_limits", True))
 
     def patch(self, username: str, dynamic: list[dict]) -> tuple[bool, float]:
         """Send one update. Returns (sent, cooldown_seconds).
@@ -322,15 +330,26 @@ class DiscordWidget:
             log(f"Discord PATCH {resp.status_code}: {resp.text[:300]}")
             return False, 5.0
 
-        # Success — pace future sends using the bucket so we stay under the limit.
+        # Success — decide how long to wait before the NEXT send. While the bucket
+        # has comfortable headroom we return 0, so a fresh lyric line goes out the
+        # moment it changes (the main loop still enforces min_patch_interval). Only
+        # once we're down to the reserve do we glide on the reset window, so a busy
+        # passage paces itself to the refill instead of slamming into a 429 and
+        # halting. This is reactive instead of the old "spread evenly across the
+        # whole window", which sat out a full cooldown even with budget to spare.
         cooldown = 0.0
         try:
             remaining = int(float(resp.headers.get("X-RateLimit-Remaining", "1")))
             reset_after = float(resp.headers.get("X-RateLimit-Reset-After", "0"))
             if remaining <= 0:
-                cooldown = reset_after                       # bucket empty: wait for refill
-            elif reset_after > 0:
-                cooldown = reset_after / (remaining + 1)     # spread the rest evenly
+                cooldown = max(reset_after, 1.0) + 0.25          # empty: wait for the refill
+            elif remaining <= self.reserve:
+                cooldown = (reset_after / remaining) if reset_after > 0 else 1.0  # last tokens: glide
+            # else: healthy budget -> cooldown stays 0, fire on the next line change
+            if self.log_rate_limits or cooldown > 0:
+                limit = resp.headers.get("X-RateLimit-Limit", "?")
+                log(f"[ratelimit] limit={limit} remaining={remaining} "
+                    f"reset_after={reset_after:.1f}s -> next send in {cooldown:.1f}s")
         except (TypeError, ValueError):
             cooldown = 0.0
         return True, min(cooldown, 60.0)

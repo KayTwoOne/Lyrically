@@ -1,0 +1,35 @@
+# ── Secrets — NEVER commit ───────────────────────────────────────────────
+# Holds your Discord bot token + Spotify client secret / refresh token.
+config.json
+
+# Any local sample/generated data that may contain personal info
+sampledata.json
+*.local.json
+
+# ── Runtime artifacts ────────────────────────────────────────────────────
+widget.log
+widget.log.*
+
+# ── Local-only image stash (kept on disk, not published) ─────────────────
+# Source logos + personal screenshots. The public banner lives in docs/.
+assets/
+
+# ── Third-party reference tool (D.W.I.F) — kept local, not vendored ───────
+# Its transform is ported into widget.py; this folder has node_modules + its
+# own .git, which don't belong in this repo. Credited in the README.
+widget-image-resizer/
+
+# ── Local staging copy of the publishable file set (not committed itself) ─
+safe-to-push/
+
+# ── Python ───────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# ── OS / editor cruft ────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

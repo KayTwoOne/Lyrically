@@ -12,9 +12,11 @@
     "refresh_token": ""
   },
   "options": {
-    "poll_interval_seconds": 5,
-    "tick_interval_seconds": 0.5,
-    "min_patch_interval_seconds": 0.75,
+    "poll_interval_seconds": 3,
+    "tick_interval_seconds": 0.25,
+    "min_patch_interval_seconds": 0.5,
+    "rate_limit_reserve": 1,
+    "log_rate_limits": true,
     "heartbeat_seconds": 0,
     "username_format": "{track} — {artist}",
     "no_lyrics_text": "♪",

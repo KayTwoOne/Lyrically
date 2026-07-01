@@ -447,9 +447,11 @@ Because Discord's widget image field needs a **URL** (not a file), each fixed co
 
 | Option | Default | Meaning |
 |---|---|---|
-| `poll_interval_seconds` | 5 | How often to re-sync true position from Spotify (drift correction). |
-| `tick_interval_seconds` | 0.5 | How often to recompute the current line locally. |
-| `min_patch_interval_seconds` | 0.75 | Hard floor between pushes. The script *also* paces itself automatically from Discord's rate-limit headers, so you rarely need to change this — raise it (e.g. `3`) only if you want to be extra conservative. |
+| `poll_interval_seconds` | 3 | How often to re-sync true position from Spotify (drift correction) and notice track changes. |
+| `tick_interval_seconds` | 0.25 | How often to recompute the current line locally (lower = snappier line changes, negligible CPU). |
+| `min_patch_interval_seconds` | 0.5 | Hard floor between pushes. The script also paces itself from Discord's rate-limit headers (the two options below), so this is mainly a safety floor. |
+| `rate_limit_reserve` | 1 | Requests kept unspent in the rate-limit bucket as a 429 buffer. While the bucket sits above this, a new lyric line is sent the instant it changes (snappy); once it drops to the reserve the script glides on the refill window, so a lyric-dense passage can't bottom out the bucket and stall the widget. Raise (e.g. `2`) for more safety margin / smoother spacing. |
+| `log_rate_limits` | true | Write the live bucket state (`[ratelimit] limit=… remaining=… reset_after=…`) to `widget.log` on each send, so you can see your real headroom. |
 | `heartbeat_seconds` | 0 | `0` = push only when the lyric line changes. Set e.g. `10` to also refresh every 10s while playing, so a progress bar advances smoothly (costs ~6 extra pushes/min). |
 | `username_format` | `{track} — {artist}` | The identity `username`. Placeholders: `{track}`, `{artist}`, `{album}`. |
 | `no_lyrics_text` | `♪` | Shown for intros/gaps and tracks with no synced lyrics. |
