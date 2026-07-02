@@ -4,13 +4,12 @@
 
 # 🎵 Lyrically
 
-**Live, time-synced Spotify lyrics on your Discord profile.**
+**Live, time-synced lyrics on your Discord profile.**
 
-Lyrically is a small Python service that follows your Spotify playback, fetches synced lyrics, and
-pushes the current line to a custom Discord profile widget in near-realtime.
+Lyrically is a small program that watches what music you're playing, looks up the lyrics, and shows
+the exact line you're hearing on a widget on your Discord profile, updating in near-realtime.
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)
-![Spotify Premium](https://img.shields.io/badge/Spotify-Premium%20required-1DB954?logo=spotify&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20cross--platform%20core-blue)
 
@@ -18,176 +17,211 @@ pushes the current line to a custom Discord profile widget in near-realtime.
 
 ---
 
-## How it works
+## What is this, in plain English?
 
-The widget itself has no logic: it's a layout with named data slots that Discord renders from
-whatever was last pushed to your profile. All the realtime behaviour lives in [`widget.py`](widget.py):
+Discord has an experimental feature that lets a profile show a small "widget" card. Lyrically fills
+that card with your current song: title, artist, album art, a progress bar, and the **lyric line
+you're hearing right now**.
+
+The widget itself is just a display. The actual work is done by a small Python script
+([`widget.py`](widget.py)) that runs on your PC (or a server): it checks what you're playing,
+fetches the song's synced lyrics, and sends the current line to Discord every few seconds.
 
 ```
- Music source ────┐  (current track + position: Discord presence,
-                  │   Spotify API, Windows media, or Last.fm)
-                  ├─►  widget.py  ──PATCH──►  Discord profile widget
- LRCLIB ──────────┘  (time-synced .lrc lyrics)
+ Music source ────┐  (what's playing + how far into the song:
+                  │   Discord presence, Spotify API, Windows media, or Last.fm)
+                  ├─►  widget.py  ──►  your Discord profile widget
+ LRCLIB ──────────┘  (the time-synced lyrics)
 ```
 
-1. **Poll** Spotify for the current track and playback position.
-2. **Fetch** time-synced lyrics for that track from [LRCLIB](https://lrclib.net) (free, no key).
-3. **Track the position locally** with a monotonic clock between polls, re-syncing to kill drift.
-4. **Push** the current line to Discord the moment it changes, as fast as Discord's rate-limit bucket allows, keeping a small token reserve so a lyric-dense passage can't stall the widget.
+## What you'll need
 
-## Features
-
-- **Live synced lyrics**: the current line updates as the song plays.
-- **Four music sources**: Discord presence (free Spotify, exact sync), Spotify Web API (Premium), Windows media/SMTC (any local player), or Last.fm (any scrobbler, approximate).
-- **Drift-corrected timing**: advances locally and re-syncs from the source, so lines stay aligned.
-- **Adaptive rate limiting**: reads Discord's live rate-limit headers and paces updates evenly across the budget for a steady, unbroken cadence (or switch to `burst` pacing for lowest latency). It never blocks, and after any 429 it backs off and resumes with the *current* line.
-- **Graceful states**: handles pause, nothing-playing, instrumentals, and tracks with no lyrics.
-- **Now-playing metadata**: track, artist, album, album art, and a song-progress bar.
-- **Optional album-art fix**: reshapes each cover (transparent top strip + rounded top-right corner) so it sits inside the widget frame, hosted via a Discord webhook. Pure-Python port of [D.W.I.F](https://github.com/AjaxFNC-YT/D.W.I.F).
-- **Hidden background mode**: a `pythonw` launcher and optional Windows Scheduled Task; no window, taskbar button, or tray icon.
-- **Secrets-safe**: read-only Spotify scopes, loopback-only OAuth, nothing sensitive ever logged, `config.json` git-ignored.
-
-## Getting started
-
-> ⚡ **Fast path:** most of the Discord setup can be done in **one console paste** with
-> [`lyrically-setup.js`](lyrically-setup.js) (it creates the app + widget, adds it to your profile,
-> and downloads a ready `config.json`). See [SETUP.md → Express setup](SETUP.md). The steps below are
-> the full manual route.
-
-> ⏱️ First-time setup takes around 20-30 minutes, mostly the one-time, browser-based Discord
-> configuration. **The full walkthrough is in [SETUP.md](SETUP.md)**; the steps below are the overview.
-
-### Prerequisites
-
-- **Python 3.9+**: [python.org](https://www.python.org/downloads/) or the Microsoft Store
+- A **Windows PC** (macOS/Linux work for the core script too)
 - A **Discord account**
-- A music source (see the table below). **Spotify Premium is NOT required** unless you pick the
+- **About 30 minutes** for the one-time setup
+- A music source from the table below. **Spotify Premium is NOT required** unless you choose the
   Spotify API source.
 
-### Music sources
+## Music sources
 
-Lyrically can read "what's playing" from four different places. Pick one with `source` in
-`config.json` (the express setup asks you during install):
+Lyrically can read "what's playing" from four places. You pick one during setup:
 
-| `source` | Sync quality | Works with | Needs | Can run on a server 24/7 |
-|---|---|---|---|---|
-| `discord` (recommended) | **Exact** | Free or Premium Spotify (linked to Discord) | Join the [Lanyard server](https://discord.gg/lanyard), keep "Display Spotify as your status" on | ✅ |
-| `spotify` | **Exact** | Spotify **Premium only** (2026 API rules) | A Spotify Developer app + one-time auth | ✅ |
-| `smtc` | **Exact** | **Any** player on your Windows PC (free Spotify, YouTube Music, browsers...) | `pip install winsdk`; must run on the PC that plays the music; no album art | ❌ local only |
-| `lastfm` | **Approximate** (Last.fm gives no playback position; lyrics are estimated) | Anything that scrobbles to Last.fm | Free [Last.fm API key](https://www.last.fm/api/account/create) + username | ✅ |
+| Source | Lyric sync | Works with | Extra requirements |
+|---|---|---|---|
+| **Discord presence** (recommended) | Exact | Free or Premium Spotify | Join one Discord server (Lanyard); keep "Display Spotify as your status" on |
+| **Spotify API** | Exact | Spotify **Premium only** | A free Spotify developer app + a one-time login |
+| **Windows media (SMTC)** | Exact | **Any** music app on your PC | One extra install; must run on the PC that plays the music; no album art |
+| **Last.fm** | Approximate (no position data, so lyrics are estimated) | Anything that scrobbles to Last.fm | Free Last.fm API key |
 
-> ⚠️ **About Spotify Premium:** since February 2026 Spotify gates its Web API behind Premium, which
-> is why the `spotify` source needs it. Free-Spotify users should pick `discord` (same exact sync,
-> no Spotify keys needed at all) or `lastfm`/`smtc`.
-- Windows is fully supported (including hidden background mode); the core script is cross-platform
+---
 
-### 1. Get the code
+## Getting started (no experience needed)
 
-```bash
-git clone https://github.com/<your-username>/Lyrically.git
-cd Lyrically
+Never touched Python, pip, or a terminal? Follow these parts in order. Each one explains itself.
+
+### Part A: Install Python
+
+Python is a free programming language runtime. Lyrically's code is written in it, so your PC needs
+Python installed to run it.
+
+**Windows (pick one):**
+- **python.org (recommended):** download the latest Python from
+  [python.org/downloads](https://www.python.org/downloads/), run the installer, and on the very
+  first screen **tick the box that says "Add python.exe to PATH"** before clicking Install. That
+  box is what lets you type `python` in a terminal later.
+- **Microsoft Store:** search "Python" in the Store app and install the newest version (3.11+).
+  No checkboxes to worry about.
+
+**macOS:** use the installer from [python.org/downloads](https://www.python.org/downloads/).
+**Linux:** Python is usually preinstalled; otherwise use your package manager.
+
+**Check it worked:** open a terminal (Windows: press **Start**, type `powershell`, press Enter) and type:
+
+```
+python --version
 ```
 
-### 2. Install the dependencies
+If it prints something like `Python 3.12.4`, you're good. If it says *"python is not recognized"*,
+see [Troubleshooting](#troubleshooting-for-first-timers) below.
 
-```bash
-pip install -r requirements.txt
+### Part B: Download Lyrically
+
+- Click the green **Code** button at the top of this page, then **Download ZIP**.
+- Right-click the downloaded file, **Extract All**, and put the folder somewhere you'll keep it
+  (for example `Documents\Lyrically`).
+- (If you use git: `git clone` works too, of course.)
+
+Now open a terminal **in that folder**: on Windows 11, open the folder in File Explorer,
+right-click empty space, and choose **Open in Terminal**. (On Windows 10: hold **Shift**,
+right-click, "Open PowerShell window here".) Every command below is typed into that window.
+
+### Part C: Install the libraries (this is what "pip" is)
+
+`pip` is Python's built-in package installer: it downloads the ready-made libraries a script needs.
+Lyrically needs two small ones, listed in [`requirements.txt`](requirements.txt). Install them with:
+
+```
+python -m pip install -r requirements.txt
 ```
 
-### 3. Create your config file
+You'll see it download and finish with "Successfully installed...". That's it, pip's whole job is done.
 
-```powershell
-Copy-Item config.example.json config.json   # Windows PowerShell
-# cp config.example.json config.json          # macOS / Linux
+### Part D: Create your config file
+
+Lyrically reads your personal settings (IDs, tokens, chosen source) from a file called
+`config.json`. Make yours by copying the template:
+
+- In File Explorer: copy [`config.example.json`](config.example.json), paste it in the same
+  folder, and rename the copy to exactly **`config.json`**.
+- ⚠️ Windows hides file extensions by default, which can silently give you `config.json.txt`.
+  In File Explorer turn on **View → Show → File name extensions** first, so you can see what
+  you're renaming.
+
+You don't need to fill anything in yet: the next step does most of it for you.
+
+### Part E: The Discord side (one paste does almost all of it)
+
+This creates the Discord app and the widget, adds it to your profile, and hands you a filled-in
+`config.json` to swap in. It's a guided, form-based script you paste into your browser once:
+
+➡️ **Follow [SETUP.md → Express setup](SETUP.md)** (it also asks which music source you want and
+explains what each needs, with accuracy labels).
+
+Prefer to do everything by hand, or want to understand each step? The same file contains the full
+manual walkthrough (Parts 1-12).
+
+### Part F: Connect your music source
+
+Whatever you picked in Part E has a small one-time step, detailed in
+**[SETUP.md, Part 8](SETUP.md)**:
+
+- **Discord presence** (recommended): join the [Lanyard Discord server](https://discord.gg/lanyard)
+  and make sure Discord's Settings → Connections → Spotify has **"Display Spotify as your status"**
+  turned on. No keys needed.
+- **Spotify API** (Premium): create a free developer app, put its Client ID/Secret in
+  `config.json`, then run `python get_spotify_token.py` once (a browser opens, you click Agree).
+- **Windows media**: run `python -m pip install winsdk`. Done.
+- **Last.fm**: put your username and free [API key](https://www.last.fm/api/account/create) in
+  `config.json`.
+
+### Part G: Run it
+
+In your terminal (still in the Lyrically folder):
+
 ```
-
-You'll fill `config.json` in during the next two steps. It is git-ignored, so **never commit it**.
-
-### 4. Set up the Discord app + widget
-
-Follow **[SETUP.md, Parts 1-7](SETUP.md)**: create a Discord application, unlock the widget editor,
-design the widget, authorize it, and copy your **Application ID**, **User ID**, and **Bot token**
-into `config.json`.
-
-### 5. Connect your music source
-
-Set `source` in `config.json` and do that source's one-time step (full details in
-**[SETUP.md, Part 8](SETUP.md)**):
-
-- **`discord`** (recommended): join the [Lanyard server](https://discord.gg/lanyard) and keep
-  "Display Spotify as your status" on. No keys needed.
-- **`spotify`** (Premium): create a Spotify Developer app, put its **Client ID/Secret** into
-  `config.json`, then run `python get_spotify_token.py` once.
-- **`smtc`** (Windows): `pip install winsdk`. Nothing else.
-- **`lastfm`** (approximate sync): put your **username** and free **API key** into `config.json`.
-
-### 6. Run it
-
-```bash
 python widget.py
 ```
 
-Play a song and you'll see it pick up the track and start pushing lyric lines.
+Play a song. Within a few seconds you should see lines like:
 
-### 7. Add the widget to your profile
+```
+Started. Source: Discord presence via Lanyard ...
+Now playing: <song> - <artist>
+Loaded 42 synced lyric lines.
+♪ <the current lyric line>
+```
 
-Follow **[SETUP.md, Part 10](SETUP.md)** to add the published widget to your Discord profile.
+...and your Discord profile widget comes alive. Press **Ctrl+C** in the terminal to stop it.
+Everything it does is also written to `widget.log` in the same folder.
 
-### (Optional) Run it hidden in the background
+### Part H (optional): Run it invisibly in the background
 
-Double-click **`start-widget.vbs`**, or see **[SETUP.md, Part 11](SETUP.md)** to auto-start it at
-logon with no window.
+Once it works, you don't need a terminal window sitting around: double-click
+**`start-widget.vbs`** to run it with no window at all, or see **[SETUP.md, Part 11](SETUP.md)** to
+start it automatically at every logon. Want it running 24/7 even with your PC off? See
+**[HOSTING.md](HOSTING.md)** for a free-server walkthrough.
 
-### (Optional) Host it 24/7
+---
 
-The `discord`, `spotify` and `lastfm` sources read playback from cloud APIs, so Lyrically can run on
-a free server and keep your widget updating even when your PC is off (`smtc` is the one local-only
-source). Secrets can be supplied via environment variables (`DISCORD_BOT_TOKEN`,
-`SPOTIFY_REFRESH_TOKEN`, `LASTFM_API_KEY`, `LYRICALLY_SOURCE`, and friends) so no secrets file sits
-on the host. See **[HOSTING.md](HOSTING.md)** for a secure, step-by-step Wispbyte walkthrough.
+## Troubleshooting for first-timers
 
-## Configuration
+- **"python is not recognized"** in the terminal: Python isn't on your PATH. Easiest fixes: try
+  `py --version` instead (the python.org installer adds a `py` shortcut), or re-run the python.org
+  installer and tick **"Add python.exe to PATH"**, then open a **new** terminal window.
+- **"pip is not recognized"**: use the form we use everywhere here, `python -m pip ...`, which
+  always works when `python` does.
+- **You double-clicked `widget.py` and a window flashed and vanished**: that's normal; run it from
+  a terminal instead so you can read what it says.
+- **The widget shows "Nothing playing"** while music is on: read the newest lines in `widget.log` -
+  Lyrically tells you exactly why (for the Discord source it's usually your status being set to
+  Invisible, or the Spotify status toggle being off).
+- **`config.json` seems ignored**: check it isn't actually `config.json.txt` (see Part D).
 
-All runtime behaviour is tunable in `config.json` under `options`: poll/tick cadence, the rate-limit
-floor and reserve (responsiveness vs. 429 safety margin), an optional `heartbeat_seconds` for smoother
-progress-bar movement, the `username_format`, and placeholder text for no-lyrics / instrumental /
-paused states. See the table in [SETUP.md](SETUP.md).
+## Everyday knobs (optional)
+
+All tuning lives in `config.json` under `options`: how often to poll, `pacing` (`smooth` = steady
+even updates, `burst` = fastest possible updates in clumps), placeholder texts, and more. The full
+table is in [SETUP.md](SETUP.md). The defaults are sensible; you don't have to touch any of it.
 
 ## Project structure
 
 | File | Purpose |
 |---|---|
-| `widget.py` | The realtime updater service (poll, lyrics, push). |
-| `lyrically-setup.js` | Optional one-paste browser-console script that automates the whole Discord setup. |
-| `lyrically_widget_config.json` | The widget layout, importable by a widget-configurator extension (or baked into the script above). |
-| `get_spotify_token.py` | One-time Spotify OAuth helper; writes your refresh token. |
-| `config.example.json` | Config template; copy to `config.json` (git-ignored). |
-| `widget_sample_data.json` | Key/Type/Value reference for the editor's Sample Data tab. |
-| `sample_album_art.png` | Placeholder cover for the editor's image picker / fallback. |
-| `start-widget.vbs` | Launches the service hidden (for the Startup folder). |
-| `install_background.ps1` / `uninstall_background.ps1` | Optional auto-restarting Scheduled Task. |
-| `SETUP.md` | Full from-scratch setup guide. |
-| `HOSTING.md` | Secure step-by-step guide to host it 24/7 (Wispbyte / any server). |
-
-## Tech stack
-
-**Python 3.9+** with [`requests`](https://pypi.org/project/requests/) and
-[`Pillow`](https://pypi.org/project/Pillow/) · **Spotify Web API** (Authorization Code flow) for
-playback · **LRCLIB** for synced lyrics · **Discord Social SDK** profile widgets.
+| `widget.py` | The program that watches your music and updates the widget. |
+| `lyrically-setup.js` | One-paste browser script that automates the whole Discord setup. |
+| `lyrically_widget_config.json` | The widget layout, importable by a widget-configurator extension. |
+| `get_spotify_token.py` | One-time Spotify login helper (Spotify API source only). |
+| `config.example.json` | Settings template; copy to `config.json`. |
+| `widget_sample_data.json` | Reference values for the widget editor's Sample Data tab. |
+| `sample_album_art.png` | Placeholder cover for the editor's image picker. |
+| `start-widget.vbs` | Runs Lyrically hidden, with no window. |
+| `install_background.ps1` / `uninstall_background.ps1` | Optional auto-start task for Windows. |
+| `SETUP.md` | Full setup guide (express + manual + all sources). |
+| `HOSTING.md` | Run it 24/7 on a free server. |
 
 ## Security
 
-`config.json` holds a Discord bot token and a Spotify client secret + refresh token. It is
-**git-ignored and must never be committed**. Spotify scopes are read-only, the OAuth helper binds only
-to loopback and validates the OAuth `state`, and no secret value is ever printed or logged. See the
-threat-model section in [SETUP.md](SETUP.md).
+Your `config.json` holds a Discord bot token (and possibly Spotify/Last.fm keys). It stays on your
+machine, is ignored by git, and must **never** be shared or uploaded. The tokens involved are
+deliberately low-power: they can update your widget, not control your account. Spotify access is
+read-only. Nothing sensitive is ever printed to logs. Full threat model in [SETUP.md](SETUP.md).
 
 ## Disclaimer
 
 Lyrically uses an **experimental, unofficial** Discord feature (Social SDK profile widgets) gated
 behind developer experiments, which may change or be removed at any time. It is provided for
-**personal and educational use**. Use it responsibly. Not affiliated with or endorsed by Discord or
-Spotify; all trademarks belong to their respective owners.
+**personal and educational use**. Use it responsibly. Not affiliated with or endorsed by Discord,
+Spotify, or Last.fm; all trademarks belong to their respective owners.
 
 ## Credits
 
@@ -195,7 +229,7 @@ Spotify; all trademarks belong to their respective owners.
 - Profile-injection technique from the **Discord Previews** community.
 - Lyrics from [LRCLIB](https://lrclib.net).
 - Album-art widget-fix algorithm ported from **[D.W.I.F](https://github.com/AjaxFNC-YT/D.W.I.F)** by [AjaxFNC-YT](https://github.com/AjaxFNC-YT).
-- Automated setup script (`lyrically-setup.js`) and importable `lyrically_widget_config.json` adapted from **[aamiaa's Widget Creator](https://gist.github.com/aamiaa/7cdd590e3949cd654758bc90bcb4710b)** and the community "Discord Widget Configurator" extension built on it.
+- Automated setup script (`lyrically-setup.js`) and importable widget config adapted from **[aamiaa's Widget Creator](https://gist.github.com/aamiaa/7cdd590e3949cd654758bc90bcb4710b)** and the community "Discord Widget Configurator" extension built on it.
 
 ## License
 
