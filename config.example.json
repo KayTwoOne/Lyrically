@@ -1,4 +1,6 @@
 {
+  "source": "spotify",
+
   "discord": {
     "application_id": "YOUR_DISCORD_APPLICATION_ID",
     "user_id": "YOUR_DISCORD_USER_ID",
@@ -11,10 +13,18 @@
     "redirect_uri": "http://127.0.0.1:8888/callback",
     "refresh_token": ""
   },
+  "lastfm": {
+    "username": "",
+    "api_key": ""
+  },
+  "discord_presence": {
+    "lanyard_url": "https://api.lanyard.rest"
+  },
   "options": {
     "poll_interval_seconds": 3,
     "tick_interval_seconds": 0.25,
     "min_patch_interval_seconds": 0.5,
+    "pacing": "smooth",
     "rate_limit_reserve": 1,
     "log_rate_limits": true,
     "heartbeat_seconds": 0,

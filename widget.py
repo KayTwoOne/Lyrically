@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""Realtime Spotify lyrics -> Discord profile widget updater.
+"""Realtime music lyrics -> Discord profile widget updater.
 
 The loop, every tick:
-  1. (every poll_interval) ask Spotify what's playing + the exact position.
+  1. (every poll_interval) ask the configured MUSIC SOURCE what's playing.
+     Sources ("source" in config.json):
+       spotify : Spotify Web API   - exact position; requires Spotify Premium
+       discord : Discord presence  - exact position via Lanyard; free Spotify OK
+       smtc    : Windows media     - exact position; any local player; Windows only
+       lastfm  : Last.fm           - approximate position (estimated); any scrobbler
   2. when the track changes, fetch time-synced lyrics from LRCLIB (free, no key).
   3. advance the position locally between polls using a monotonic clock.
   4. PATCH your Discord widget identity *only when the visible lyric line changes*
@@ -100,6 +105,8 @@ _ENV_MAP = {
     ("spotify", "client_secret"):  "SPOTIFY_CLIENT_SECRET",
     ("spotify", "refresh_token"):  "SPOTIFY_REFRESH_TOKEN",
     ("discord", "image_webhook_url"): "DISCORD_IMAGE_WEBHOOK_URL",
+    ("lastfm", "username"):        "LASTFM_USERNAME",
+    ("lastfm", "api_key"):         "LASTFM_API_KEY",
 }
 
 
@@ -115,11 +122,15 @@ def load_config() -> dict:
             cfg = json.load(fh)
     cfg.setdefault("discord", {})
     cfg.setdefault("spotify", {})
+    cfg.setdefault("lastfm", {})
+    cfg.setdefault("discord_presence", {})
     cfg.setdefault("options", {})
     for (section, key), env_name in _ENV_MAP.items():
         value = os.environ.get(env_name)
         if value:
             cfg[section][key] = value
+    # Which music source feeds the widget (spotify | discord | smtc | lastfm).
+    cfg["source"] = os.environ.get("LYRICALLY_SOURCE", cfg.get("source", "spotify"))
     if not cfg["discord"].get("bot_token") or cfg["discord"]["bot_token"].startswith("YOUR_"):
         die("No Discord bot token. Set it in config.json or the DISCORD_BOT_TOKEN env var.")
     return cfg
@@ -135,8 +146,8 @@ class Track:
     artist: str
     album: str
     art_url: str
-    duration: float   # seconds
-    position: float   # seconds, as reported by Spotify at the moment of the poll
+    duration: float           # seconds (0 = unknown)
+    position: float | None    # seconds at poll time; None = source can't report it (estimated locally)
     is_playing: bool
 
 
@@ -211,6 +222,197 @@ def parse_track(data: dict) -> Track | None:
         position=data.get("progress_ms", 0) / 1000.0,
         is_playing=bool(data.get("is_playing")),
     )
+
+
+# --------------------------------------------------------------------------- #
+# Music sources — where "what's playing right now" comes from.                 #
+# Every source exposes .poll() -> Track | None (None = nothing playing) and    #
+# may raise requests.RequestException (the main loop backs off and retries).   #
+# --------------------------------------------------------------------------- #
+class SpotifySource:
+    """Spotify Web API. Exact position. Requires Spotify Premium (2026 API rules)."""
+    name = "Spotify Web API (exact sync, Premium required)"
+
+    def __init__(self, cfg: dict):
+        self.client = SpotifyClient(cfg)
+
+    def poll(self) -> Track | None:
+        data = self.client.now_playing()
+        return parse_track(data) if data else None
+
+
+class DiscordPresenceSource:
+    """Your Discord 'Listening to Spotify' presence, read via Lanyard.
+
+    Exact position (presence carries start/end timestamps) and works with FREE
+    Spotify. Needs: Spotify linked to Discord with 'Display Spotify as your
+    status' on, and your account in the Lanyard Discord server (discord.gg/lanyard)
+    or a self-hosted Lanyard (set discord_presence.lanyard_url).
+    Note: pausing removes the presence, so pause shows as 'nothing playing'.
+    """
+    name = "Discord presence via Lanyard (exact sync, free Spotify OK)"
+
+    def __init__(self, cfg: dict):
+        dp = cfg.get("discord_presence", {})
+        self.user_id = dp.get("user_id") or cfg["discord"].get("user_id", "")
+        self.base = (dp.get("lanyard_url") or "https://api.lanyard.rest").rstrip("/")
+        self._hinted = False   # log the "why is nothing showing" hint once per dry spell
+        if not self.user_id or str(self.user_id).startswith("YOUR_"):
+            die("The discord source needs your Discord user id (discord.user_id in config.json).")
+
+    def poll(self) -> Track | None:
+        resp = requests.get(f"{self.base}/v1/users/{self.user_id}", timeout=15)
+        if resp.status_code == 404:
+            die("Lanyard doesn't know this user - join https://discord.gg/lanyard with this account "
+                "(or self-host Lanyard and set discord_presence.lanyard_url).")
+        resp.raise_for_status()
+        data = resp.json().get("data") or {}
+        sp = data.get("spotify")
+        if not data.get("listening_to_spotify") or not sp:
+            # Tell the user WHY nothing is showing (once per dry spell).
+            if not self._hinted:
+                if data.get("discord_status", "offline") == "offline":
+                    log("Discord shows you as OFFLINE/INVISIBLE - presence (and your Spotify status) is "
+                        "hidden from everyone, including this widget. Set yourself Online/Idle/DND on any "
+                        "Discord client and it will pick up within a few seconds.")
+                else:
+                    log("You're online but Discord shows no 'Listening to Spotify' status. Check: "
+                        "Settings -> Connections -> Spotify -> 'Display Spotify as your status' is ON, "
+                        "Settings -> Activity Privacy -> 'Share your detected activities' is ON, "
+                        "music is actually playing, and you're not in a Spotify Private Session. "
+                        f"You can see exactly what the widget sees at {self.base}/v1/users/{self.user_id}")
+                self._hinted = True
+            return None
+        self._hinted = False
+        ts = sp.get("timestamps") or {}
+        start, end = ts.get("start") or 0, ts.get("end") or 0
+        duration = max((end - start) / 1000.0, 0.0)
+        position = max((time.time() * 1000 - start) / 1000.0, 0.0) if start else None
+        if duration and position is not None:
+            position = min(position, duration)
+        return Track(
+            id=sp.get("track_id") or f"{sp.get('song')}|{sp.get('artist')}",
+            name=sp.get("song") or "",
+            artist=(sp.get("artist") or "").replace("; ", ", "),
+            album=sp.get("album") or "",
+            art_url=sp.get("album_art_url") or "",
+            duration=duration,
+            position=position,
+            is_playing=True,   # presence only exists while actually playing
+        )
+
+
+class LastFmSource:
+    """Last.fm now-playing. Works with ANY scrobbling player (free Spotify included)
+    but Last.fm reports no playback position, so the lyric sync is APPROXIMATE:
+    we start a local clock when we first see the track (late joins run behind,
+    seeks aren't detected). Duration comes from track.getInfo when available.
+    """
+    name = "Last.fm (approximate sync - no position data)"
+    API = "https://ws.audioscrobbler.com/2.0/"
+
+    def __init__(self, cfg: dict):
+        lf = cfg.get("lastfm", {})
+        self.user = lf.get("username", "")
+        self.key = lf.get("api_key", "")
+        if not self.user or not self.key or str(self.key).startswith("YOUR_"):
+            die("The lastfm source needs lastfm.username and lastfm.api_key in config.json "
+                "(free key: https://www.last.fm/api/account/create).")
+        self._dur_cache: dict[tuple[str, str], float] = {}
+
+    def _duration(self, artist: str, track_name: str) -> float:
+        key = (artist, track_name)
+        if key not in self._dur_cache:
+            dur = 0.0
+            try:
+                r = requests.get(self.API, params={
+                    "method": "track.getInfo", "artist": artist, "track": track_name,
+                    "api_key": self.key, "format": "json"}, timeout=15)
+                if r.ok:
+                    dur = float((r.json().get("track") or {}).get("duration") or 0) / 1000.0
+            except (requests.RequestException, ValueError, TypeError):
+                pass
+            self._dur_cache[key] = dur
+        return self._dur_cache[key]
+
+    def poll(self) -> Track | None:
+        r = requests.get(self.API, params={
+            "method": "user.getrecenttracks", "user": self.user,
+            "api_key": self.key, "format": "json", "limit": 1}, timeout=15)
+        r.raise_for_status()
+        tracks = (r.json().get("recenttracks") or {}).get("track") or []
+        t = tracks[0] if isinstance(tracks, list) and tracks else None
+        if not t or (t.get("@attr") or {}).get("nowplaying") != "true":
+            return None
+        name = t.get("name") or ""
+        artist = (t.get("artist") or {}).get("#text") or ""
+        imgs = t.get("image") or []
+        art = (imgs[-1].get("#text") or "") if imgs else ""
+        return Track(
+            id=f"{name}|{artist}",
+            name=name, artist=artist,
+            album=(t.get("album") or {}).get("#text") or "",
+            art_url=art,
+            duration=self._duration(artist, name),
+            position=None,        # unknown -> the main loop estimates from first sighting
+            is_playing=True,
+        )
+
+
+class SmtcSource:
+    """Windows System Media Transport Controls. Exact position for ANY local
+    player (free Spotify desktop, YouTube Music, browsers...). Windows-only and
+    must run on the PC that's playing. No album-art URL is available, so the
+    widget shows its fallback image. Needs:  pip install winsdk
+    """
+    name = "Windows media / SMTC (exact sync, any local player)"
+
+    def __init__(self, cfg: dict):
+        if sys.platform != "win32":
+            die("The smtc source only works on Windows (it reads the system media controls).")
+        try:
+            import asyncio
+            import winsdk.windows.media.control as wmc
+        except ImportError:
+            die("The smtc source needs the winsdk package:  pip install winsdk")
+        self._asyncio = asyncio
+        self._wmc = wmc
+
+    async def _read(self) -> Track | None:
+        wmc = self._wmc
+        mgr = await wmc.GlobalSystemMediaTransportControlsSessionManager.request_async()
+        session = mgr.get_current_session()
+        if session is None:
+            return None
+        props = await session.try_get_media_properties_async()
+        if not props or not (props.title or "").strip():
+            return None
+        info = session.get_playback_info()
+        playing = info.playback_status == wmc.GlobalSystemMediaTransportControlsSessionPlaybackStatus.PLAYING
+        tl = session.get_timeline_properties()
+        duration = tl.end_time.total_seconds() if tl.end_time else 0.0
+        position = tl.position.total_seconds() if tl.position else 0.0
+        return Track(
+            id=f"{props.title}|{props.artist}|{props.album_title}",
+            name=props.title or "", artist=props.artist or "",
+            album=props.album_title or "", art_url="",
+            duration=duration, position=position, is_playing=playing,
+        )
+
+    def poll(self) -> Track | None:
+        return self._asyncio.run(self._read())
+
+
+SOURCES = {"spotify": SpotifySource, "discord": DiscordPresenceSource,
+           "lastfm": LastFmSource, "smtc": SmtcSource}
+
+
+def build_source(cfg: dict):
+    key = str(cfg.get("source") or "spotify").strip().lower()
+    cls = SOURCES.get(key)
+    if not cls:
+        die(f"Unknown source '{key}'. Valid options: " + ", ".join(sorted(SOURCES)))
+    return cls(cfg)
 
 
 # --------------------------------------------------------------------------- #
@@ -299,7 +501,18 @@ class DiscordWidget:
         # Keep this many requests in the bucket unspent as a 429 safety buffer. Once
         # the bucket drops to it, we glide on the reset window instead of firing, so
         # a busy passage can never bottom out the bucket and halt the widget.
+        # (Only used by "burst" pacing.)
         self.reserve = max(1, int(opt.get("rate_limit_reserve", 1)))
+        # How to spend the fixed rate-limit budget:
+        #   smooth (default): spread sends evenly across the bucket window - a
+        #                     steady, even cadence with no bursts.
+        #   burst           : send the instant a line changes while there's
+        #                     headroom, then glide near the reserve - lowest
+        #                     latency, but lines arrive in bursts.
+        self.pacing = str(opt.get("pacing", "smooth")).strip().lower()
+        if self.pacing not in ("smooth", "burst"):
+            log(f"Unknown pacing '{self.pacing}' - using 'smooth'.")
+            self.pacing = "smooth"
         # Log the live rate-limit bucket on every send (so you can see the real
         # headroom in widget.log). Pacing is always logged regardless.
         self.log_rate_limits = bool(opt.get("log_rate_limits", True))
@@ -330,26 +543,28 @@ class DiscordWidget:
             log(f"Discord PATCH {resp.status_code}: {resp.text[:300]}")
             return False, 5.0
 
-        # Success — decide how long to wait before the NEXT send. While the bucket
-        # has comfortable headroom we return 0, so a fresh lyric line goes out the
-        # moment it changes (the main loop still enforces min_patch_interval). Only
-        # once we're down to the reserve do we glide on the reset window, so a busy
-        # passage paces itself to the refill instead of slamming into a 429 and
-        # halting. This is reactive instead of the old "spread evenly across the
-        # whole window", which sat out a full cooldown even with budget to spare.
+        # Success — decide how long to wait before the NEXT send, based on the
+        # bucket headers and the configured pacing strategy. Note the cooldown is
+        # a *gate*, not a schedule: after it expires we still wait for the next
+        # real lyric-line change, so updates land on line boundaries either way.
         cooldown = 0.0
         try:
             remaining = int(float(resp.headers.get("X-RateLimit-Remaining", "1")))
             reset_after = float(resp.headers.get("X-RateLimit-Reset-After", "0"))
             if remaining <= 0:
                 cooldown = max(reset_after, 1.0) + 0.25          # empty: wait for the refill
+            elif self.pacing == "smooth":
+                # Steady cadence: spread the remaining budget evenly across the
+                # window. No bursts, no long stalls - the smoothest a fixed
+                # budget allows.
+                cooldown = (reset_after / (remaining + 1)) if reset_after > 0 else 0.0
             elif remaining <= self.reserve:
-                cooldown = (reset_after / remaining) if reset_after > 0 else 1.0  # last tokens: glide
-            # else: healthy budget -> cooldown stays 0, fire on the next line change
+                cooldown = (reset_after / remaining) if reset_after > 0 else 1.0  # burst: glide on last tokens
+            # else (burst pacing, healthy budget): cooldown 0 -> fire on next change
             if self.log_rate_limits or cooldown > 0:
                 limit = resp.headers.get("X-RateLimit-Limit", "?")
                 log(f"[ratelimit] limit={limit} remaining={remaining} "
-                    f"reset_after={reset_after:.1f}s -> next send in {cooldown:.1f}s")
+                    f"reset_after={reset_after:.1f}s -> next send in {cooldown:.1f}s ({self.pacing})")
         except (TypeError, ValueError):
             cooldown = 0.0
         return True, min(cooldown, 60.0)
@@ -467,52 +682,52 @@ def main() -> None:
     if image_webhook:
         log("Album-art widget-fix enabled (covers will be reshaped + hosted via webhook).")
 
-    spotify = SpotifyClient(cfg)
+    source = build_source(cfg)
     discord = DiscordWidget(cfg)
 
     track: Track | None = None
     current_id: str | None = None
     art_url = ""             # resolved album-art URL for the current track (fixed+hosted, or raw)
     lyrics = Lyrics([])
-    sync_pos = 0.0           # last position reported by Spotify
+    sync_pos = 0.0           # last known/estimated position
     sync_mono = time.monotonic()
     is_playing = False
     last_poll = 0.0
-    spotify_backoff_until = 0.0   # skip Spotify polls until here (honours Spotify's Retry-After on 429)
+    source_backoff_until = 0.0    # skip source polls until here (honours Retry-After on 429)
     last_sent = None         # dedupe key for the last pushed state
     last_patch_at = 0.0
     cooldown_until = 0.0     # don't PATCH again until this monotonic time (rate-limit pacing)
 
-    log("Started. Watching Spotify… (Ctrl+C to stop)")
+    log(f"Started. Source: {source.name}. (Ctrl+C to stop)")
     while True:
         now = time.monotonic()
 
-        # 1) Poll Spotify on its own cadence (respecting any Spotify back-off).
-        if now - last_poll >= poll_interval and now >= spotify_backoff_until:
+        # 1) Poll the music source on its own cadence (respecting any back-off).
+        if now - last_poll >= poll_interval and now >= source_backoff_until:
             last_poll = now
-            data = None
+            fresh: Track | None = None
             poll_ok = True
             try:
-                data = spotify.now_playing()
+                fresh = source.poll()
             except requests.RequestException as exc:
                 poll_ok = False
                 resp = getattr(exc, "response", None)
                 if resp is not None and resp.status_code == 429:
-                    # Honour Spotify's Retry-After so we stop hammering during the penalty.
+                    # Honour the service's Retry-After so we stop hammering during a penalty.
                     try:
                         retry = float(resp.headers.get("Retry-After", 5) or 5)
                     except (TypeError, ValueError):
                         retry = 5.0
                     wait = min(max(retry, 1.0), 3600.0)   # honour it, but re-check at least hourly
-                    spotify_backoff_until = now + wait
-                    log(f"Spotify rate limited; waiting {wait:.0f}s "
+                    source_backoff_until = now + wait
+                    log(f"Source rate limited; waiting {wait:.0f}s "
                         f"(Retry-After: {retry:.0f}s; keeping current state).")
                 else:
-                    log(f"Spotify error: {exc}")
+                    log(f"Source error: {exc}")
 
             # Only act on a *successful* poll. On an error we keep the current
             # track/state instead of flipping the widget to 'nothing playing'.
-            if poll_ok and data is None:
+            if poll_ok and fresh is None:
                 track = None
                 current_id = None
                 state = ("idle",)
@@ -527,25 +742,31 @@ def main() -> None:
                         log("Idle — nothing playing.")
                     if cooldown > 0:
                         cooldown_until = now + cooldown
-            elif poll_ok:
-                parsed = parse_track(data)
-                if parsed:
-                    is_playing = parsed.is_playing
-                    sync_pos = parsed.position
-                    sync_mono = now
-                    track = parsed
-                    if parsed.id != current_id:
-                        current_id = parsed.id
-                        log(f"Now playing: {parsed.name} — {parsed.artist}")
-                        # Resolve album art once per track (fix + host, or raw fallback).
-                        art_url = process_cover(parsed.art_url, image_webhook) if image_webhook else parsed.art_url
-                        lyrics = fetch_lyrics(parsed)
-                        if lyrics.instrumental:
-                            log("Track is instrumental.")
-                        elif lyrics.lines:
-                            log(f"Loaded {len(lyrics.lines)} synced lyric lines.")
-                        else:
-                            log("No synced lyrics found for this track.")
+            elif poll_ok and fresh is not None:
+                parsed = fresh
+                is_playing = parsed.is_playing
+                track = parsed
+                new_track = parsed.id != current_id
+                if parsed.position is not None:
+                    # Source reports a real position: re-anchor the local clock to it.
+                    sync_pos, sync_mono = parsed.position, now
+                elif new_track:
+                    # Source can't report position (e.g. Last.fm): estimate from the
+                    # moment we first saw the track; keep the clock running otherwise.
+                    sync_pos, sync_mono = 0.0, now
+                if new_track:
+                    current_id = parsed.id
+                    log(f"Now playing: {parsed.name} — {parsed.artist}"
+                        + (" (position estimated)" if parsed.position is None else ""))
+                    # Resolve album art once per track (fix + host, or raw fallback).
+                    art_url = process_cover(parsed.art_url, image_webhook) if image_webhook else parsed.art_url
+                    lyrics = fetch_lyrics(parsed)
+                    if lyrics.instrumental:
+                        log("Track is instrumental.")
+                    elif lyrics.lines:
+                        log(f"Loaded {len(lyrics.lines)} synced lyric lines.")
+                    else:
+                        log("No synced lyrics found for this track.")
 
         # 2) Estimate the live position and the visible line.
         if track is not None:

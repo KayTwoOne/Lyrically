@@ -1,7 +1,9 @@
 # Spotify realtime-lyrics Discord widget — full setup
 
-This builds a personal Discord profile widget that shows your **current Spotify song +
-the live lyric line**, driven by a small Python script running on your PC.
+This builds a personal Discord profile widget that shows your **current song + the live lyric
+line**, driven by a small Python script. Music info can come from **Discord presence, the Spotify
+API, Windows media controls, or Last.fm** (Part 8) — Spotify Premium is only needed for the
+Spotify-API source.
 
 There are two halves:
 
@@ -30,21 +32,30 @@ widget layout** (album art + track/artist/album/lyric + progress bar, already wi
 fields), publishes it, authorizes it, adds it to your profile, resets the bot token, opens the
 editor, and hands you a **filled-in `config.json` to download**.
 
-**You provide:** an app name (optional) + your **Spotify Client ID/Secret**.
+**You provide:** an app name (optional) + your **music source** choice (the form explains each, with
+accuracy labels) + that source's keys if it needs any.
 **It fetches for you:** the Discord Application ID, your User ID, the Bot token, and the whole widget structure.
 
-1. **First, get your Spotify keys:** at the
-   [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) create an app, add redirect
-   URI **`http://127.0.0.1:8888/callback`**, and copy its **Client ID** + **Client Secret**.
-   (You can skip this and fill them into `config.json` later.)
-2. Open the **[Discord Developer Portal](https://discord.com/developers/applications)** (logged in) →
+1. Open the **[Discord Developer Portal](https://discord.com/developers/applications)** (logged in) →
    press **F12** → **Console** tab.
-3. Open **`lyrically-setup.js`**, copy its **entire** contents, paste into the console, press **Enter**.
-4. In the panel (top-right): enter your app name + Spotify keys → **Start setup**. Solve the
-   **captcha / 2FA** if prompted, and watch each step tick green.
+2. Open **`lyrically-setup.js`**, copy its **entire** contents, paste into the console, press **Enter**.
+3. In the panel (top-right): enter an app name and **pick your music source** — the form shows what
+   each one needs and how accurate it is:
+   - **Discord presence** (recommended): exact sync, works with **free Spotify**, no keys — you'll
+     just join the [Lanyard server](https://discord.gg/lanyard) and keep "Display Spotify as your
+     status" on.
+   - **Spotify API**: exact sync, needs **Spotify Premium** + Client ID/Secret from the
+     [Spotify Dashboard](https://developer.spotify.com/dashboard) (redirect URI
+     **`http://127.0.0.1:8888/callback`**).
+   - **Windows media (SMTC)**: exact sync from **any player on your PC**; Windows-only, can't be
+     server-hosted, no album art.
+   - **Last.fm**: works with any scrobbler but **less accurate** (no playback position; lyrics are
+     estimated) — needs your username + a free [API key](https://www.last.fm/api/account/create).
+4. Click **Start setup**, solve the **captcha / 2FA** if prompted, and watch each step tick green.
 5. Click **⬇ Download config.json** and drop it into your Lyrically folder.
-6. Run `pip install -r requirements.txt`, then **`python get_spotify_token.py`** (fills the last
-   field, the Spotify refresh token) and **`python widget.py`**. Done.
+6. Run `pip install -r requirements.txt`, do your source's one-time step from the final panel
+   (Spotify: `python get_spotify_token.py`; Discord: join Lanyard; SMTC: `pip install winsdk`;
+   Last.fm: nothing), then **`python widget.py`**. Done.
 
 > ⚠️ It runs in the **browser console** — that's the only place with your Discord session — so it's a
 > paste, not a double-click (open the dev portal, press F12 → Console, paste; **do not** run it with
@@ -57,6 +68,26 @@ editor, and hands you a **filled-in `config.json` to download**.
 > real error and a manual fallback (e.g. an Authorize link on the final card) instead of stopping the
 > run. If earlier attempts left duplicate apps, delete the extras in the Developer Portal (open the
 > app → General Information → Delete App at the bottom).
+
+> ⚠️ **Known case — "Adding the widget to your profile" fails with HTTP 401 (code 40001):** Discord's
+> server rejects the widget-add itself (it happens from the portal, the client console, and even
+> Discord's own UI — "There was a problem updating your profile"). In practice it clears once the
+> app is fully provisioned for your account. Do these **in order**:
+>
+> 1. **Issue your identity first:** download `config.json` from the final card, drop it in your
+>    Lyrically folder, and run `python widget.py` once with music playing (its first push creates the
+>    identity — the thing the "still syncing" message complains about).
+> 2. **Authorize the full scopes:** click **"Authorize full widget scopes"** on the final card (or
+>    open `https://discord.com/oauth2/authorize?client_id=YOUR_APP_ID&response_type=token&scope=openid+sdk.social_layer`)
+>    and Authorize. Check Settings → Authorized Apps shows the app with the long permission list
+>    (Part 6).
+> 3. **Add it:** click **"Copy profile-add snippet"**, open
+>    [discord.com/channels/@me](https://discord.com/channels/@me) → F12 → Console → paste → Enter.
+>    The snippet has your app ID baked in, skips duplicates, and is safe to re-run.
+>
+> Still 401 after all three? Ask in the Discord Previews thread (Part 10) — Discord occasionally
+> gates these writes server-side — or import [`lyrically_widget_config.json`](lyrically_widget_config.json)
+> into an app that's *already* on your profile using the widget-configurator extension.
 
 ### Even smoother: a widget-configurator extension
 
@@ -300,18 +331,45 @@ Skipping this makes the widget show *"Your game stats are still syncing. Keep pl
 
 ---
 
-## Part 8 — Spotify Developer app (for current song + position)
+## Part 8 — Connect your music source (for current song + position)
 
-> ⚠️ **Requires Spotify Premium.** Spotify gates **Web API** access behind Premium, and Lyrically
-> reads your playback through it. On a Free account you'll see an *"Upgrade to Spotify Premium to
-> access the Web API"* message and it won't work — a Premium subscription is required.
+Lyrically supports **four sources**. Set `"source"` at the top of `config.json` to one of
+`discord`, `spotify`, `smtc`, or `lastfm`, then do that source's one-time setup below.
+Quick comparison:
+
+| Source | Sync | Best for | Server-hostable |
+|---|---|---|---|
+| `discord` ✅ recommended | Exact | Free-Spotify users; zero API keys | ✅ |
+| `spotify` | Exact | Spotify **Premium** users | ✅ |
+| `smtc` | Exact | Any player on your Windows PC | ❌ local only |
+| `lastfm` | **Approximate** | Any scrobbling player, incl. non-Spotify | ✅ |
+
+### Source: `discord` — your Discord Spotify status (exact sync, free Spotify)
+
+Reads the "Listening to Spotify" presence Discord already shows, via [Lanyard](https://github.com/Phineas/lanyard).
+The presence carries exact timestamps, so lyric sync is just as accurate as the Spotify API.
+
+1. In Discord: **Settings → Connections → Spotify** — make sure Spotify is linked and
+   **"Display Spotify as your status"** is ON.
+2. **Join the [Lanyard Discord server](https://discord.gg/lanyard)** with this account (that's how
+   Lanyard is allowed to read your presence). Self-hosting Lanyard is also supported: set
+   `discord_presence.lanyard_url`.
+3. In `config.json`: set `"source": "discord"`. It reuses your `discord.user_id` — nothing else needed.
+
+> Notes: only works while Discord shows your Spotify status (pausing shows as "nothing playing"),
+> and it depends on the free Lanyard service being up.
+
+### Source: `spotify` — Spotify Web API (exact sync, Premium required)
+
+> ⚠️ Since February 2026 Spotify gates Web API access behind **Premium**. On a Free account you'll
+> see an *"Upgrade to Spotify Premium"* message — pick `discord` or `lastfm` instead.
 
 1. Go to the **[Spotify Developer Dashboard](https://developer.spotify.com/dashboard)** → **Create app**.
 2. Name/description: anything. **Redirect URI:** add exactly **`http://127.0.0.1:8888/callback`**
    (Spotify requires the loopback IP, not `localhost`). APIs: "Web API". Save.
 3. Open the app → **Settings** → copy **Client ID** and **Client Secret** → `config.json` →
    `spotify.client_id` / `spotify.client_secret`. Leave `spotify.refresh_token` empty.
-4. Get your refresh token (one-time):
+4. Set `"source": "spotify"` and get your refresh token (one-time):
 
    ```powershell
    python get_spotify_token.py
@@ -319,6 +377,29 @@ Skipping this makes the widget show *"Your game stats are still syncing. Keep pl
 
    A browser opens → **Agree**. The script captures the redirect and writes
    `spotify.refresh_token` into `config.json` automatically. You should see `✅ Success!`.
+
+### Source: `smtc` — Windows media controls (exact sync, any local player)
+
+Reads whatever your Windows PC is playing — free Spotify desktop, YouTube Music, Apple Music,
+browser tabs — via the system media controls.
+
+1. `pip install winsdk`
+2. In `config.json`: set `"source": "smtc"`. That's it.
+
+> Limits: Windows-only; the script must run **on the PC that plays the music** (so it can't be
+> server-hosted); no album-art URL is available, so the widget shows its fallback image.
+
+### Source: `lastfm` — Last.fm scrobbles (approximate sync)
+
+Works with **anything that scrobbles** to Last.fm. The trade-off: Last.fm reports no playback
+position, so Lyrically starts a timer when it first sees the track — lyrics run **approximately**
+in sync and drift on seeks or if you join mid-song.
+
+1. Make sure your player scrobbles to Last.fm (Spotify: Last.fm **Settings → Applications →
+   Connect Spotify**).
+2. Create a free API account at **[last.fm/api/account/create](https://www.last.fm/api/account/create)**
+   (name/description can be anything; leave the rest blank) and copy the **API key**.
+3. In `config.json`: set `"source": "lastfm"` and fill `lastfm.username` + `lastfm.api_key`.
 
 ---
 
@@ -331,8 +412,8 @@ Running the updater does exactly that — so just start it:
 python widget.py
 ```
 
-Play something on Spotify. You should see logs like `Now playing: …`, `Loaded N synced
-lyric lines.`, and `♪ <current line>`. Leave it running.
+Play something on your configured source. You should see logs like `Now playing: …`,
+`Loaded N synced lyric lines.`, and `♪ <current line>`. Leave it running.
 
 <details>
 <summary>Optional: issue the identity manually with one PowerShell command</summary>
@@ -509,7 +590,8 @@ Because Discord's widget image field needs a **URL** (not a file), each fixed co
 | `poll_interval_seconds` | 3 | How often to re-sync true position from Spotify (drift correction) and notice track changes. |
 | `tick_interval_seconds` | 0.25 | How often to recompute the current line locally (lower = snappier line changes, negligible CPU). |
 | `min_patch_interval_seconds` | 0.5 | Hard floor between pushes. The script also paces itself from Discord's rate-limit headers (the two options below), so this is mainly a safety floor. |
-| `rate_limit_reserve` | 1 | Requests kept unspent in the rate-limit bucket as a 429 buffer. While the bucket sits above this, a new lyric line is sent the instant it changes (snappy); once it drops to the reserve the script glides on the refill window, so a lyric-dense passage can't bottom out the bucket and stall the widget. Raise (e.g. `2`) for more safety margin / smoother spacing. |
+| `pacing` | `smooth` | How the fixed Discord rate-limit budget is spent. `smooth` (default) spreads updates evenly across the bucket window: a steady, even cadence with no bursts. `burst` sends the instant a line changes while there's budget, then glides: lowest latency but lines arrive in clumps followed by stalls. |
+| `rate_limit_reserve` | 1 | **Burst pacing only.** Requests kept unspent in the bucket as a 429 buffer; once the bucket drops to the reserve, burst mode glides on the refill window so it can't stall. Raise (e.g. `2`) for more safety margin. |
 | `log_rate_limits` | true | Write the live bucket state (`[ratelimit] limit=… remaining=… reset_after=…`) to `widget.log` on each send, so you can see your real headroom. |
 | `heartbeat_seconds` | 0 | `0` = push only when the lyric line changes. Set e.g. `10` to also refresh every 10s while playing, so a progress bar advances smoothly (costs ~6 extra pushes/min). |
 | `username_format` | `{track} — {artist}` | The identity `username`. Placeholders: `{track}`, `{artist}`, `{album}`. |

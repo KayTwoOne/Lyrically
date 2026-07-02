@@ -40,17 +40,23 @@ the practices below, hosting this is genuinely low-risk.
 
 ## Before you start (do these locally, once)
 
-1. **Finish the Discord + Spotify setup** in [SETUP.md](SETUP.md) — the widget should already be
-   published, authorized, and on your profile. Hosting only moves *where `widget.py` runs*.
-2. **Get your Spotify refresh token locally.** The auth flow needs a browser + loopback redirect,
-   which a server can't do, so run this on your PC:
+> **Which sources can be hosted?** `discord`, `spotify` and `lastfm` read cloud APIs and host fine.
+> The `smtc` source reads *this PC's* media controls and **cannot** run on a server — switch source
+> if you want 24/7 hosting. Set the source on the host via `LYRICALLY_SOURCE` (or `config.json`).
+
+1. **Finish the Discord setup + your music source** in [SETUP.md](SETUP.md) — the widget should
+   already be published, authorized, and on your profile. Hosting only moves *where `widget.py` runs*.
+2. **Spotify source only — get your refresh token locally.** The auth flow needs a browser +
+   loopback redirect, which a server can't do, so run this on your PC:
    ```bash
    python get_spotify_token.py
    ```
    It prints your `SPOTIFY_REFRESH_TOKEN` at the end — copy it.
-3. **Collect your six values** (from `config.json` / the dashboards):
-   `DISCORD_APPLICATION_ID`, `DISCORD_USER_ID`, `DISCORD_BOT_TOKEN`,
-   `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `SPOTIFY_REFRESH_TOKEN`.
+   (The `discord` source needs no keys at all; `lastfm` just needs `LASTFM_USERNAME` + `LASTFM_API_KEY`.)
+3. **Collect your values** (from `config.json` / the dashboards):
+   `LYRICALLY_SOURCE`, `DISCORD_APPLICATION_ID`, `DISCORD_USER_ID`, `DISCORD_BOT_TOKEN`, plus for
+   the Spotify source `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `SPOTIFY_REFRESH_TOKEN`, or for
+   Last.fm `LASTFM_USERNAME`, `LASTFM_API_KEY`.
 
 ---
 

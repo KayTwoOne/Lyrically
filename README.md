@@ -24,7 +24,8 @@ The widget itself has no logic: it's a layout with named data slots that Discord
 whatever was last pushed to your profile. All the realtime behaviour lives in [`widget.py`](widget.py):
 
 ```
- Spotify Web API ─┐  (current track + exact position)
+ Music source ────┐  (current track + position: Discord presence,
+                  │   Spotify API, Windows media, or Last.fm)
                   ├─►  widget.py  ──PATCH──►  Discord profile widget
  LRCLIB ──────────┘  (time-synced .lrc lyrics)
 ```
@@ -37,8 +38,9 @@ whatever was last pushed to your profile. All the realtime behaviour lives in [`
 ## Features
 
 - **Live synced lyrics**: the current line updates as the song plays.
-- **Drift-corrected timing**: advances locally and re-syncs from Spotify, so lines stay aligned.
-- **Adaptive rate limiting**: reads Discord's live rate-limit headers and sends each new line the instant it changes while there's headroom, gliding only as the bucket runs low and always keeping a reserve so it never bottoms out or halts. It never blocks, and after any 429 it backs off and resumes with the *current* line.
+- **Four music sources**: Discord presence (free Spotify, exact sync), Spotify Web API (Premium), Windows media/SMTC (any local player), or Last.fm (any scrobbler, approximate).
+- **Drift-corrected timing**: advances locally and re-syncs from the source, so lines stay aligned.
+- **Adaptive rate limiting**: reads Discord's live rate-limit headers and paces updates evenly across the budget for a steady, unbroken cadence (or switch to `burst` pacing for lowest latency). It never blocks, and after any 429 it backs off and resumes with the *current* line.
 - **Graceful states**: handles pause, nothing-playing, instrumentals, and tracks with no lyrics.
 - **Now-playing metadata**: track, artist, album, album art, and a song-progress bar.
 - **Optional album-art fix**: reshapes each cover (transparent top strip + rounded top-right corner) so it sits inside the widget frame, hosted via a Discord webhook. Pure-Python port of [D.W.I.F](https://github.com/AjaxFNC-YT/D.W.I.F).
@@ -59,12 +61,24 @@ whatever was last pushed to your profile. All the realtime behaviour lives in [`
 
 - **Python 3.9+**: [python.org](https://www.python.org/downloads/) or the Microsoft Store
 - A **Discord account**
-- A **Spotify Premium account** (required, see the note below)
+- A music source (see the table below). **Spotify Premium is NOT required** unless you pick the
+  Spotify API source.
 
-> ⚠️ **Spotify Premium is required.** Lyrically reads what you're playing through the **Spotify Web
-> API**, and Spotify now gates Web API access behind Premium. On a Free account the app will fail at
-> the Spotify step (you'll see an "Upgrade to Spotify Premium to access the Web API" message), so a
-> Premium subscription is needed to run Lyrically.
+### Music sources
+
+Lyrically can read "what's playing" from four different places. Pick one with `source` in
+`config.json` (the express setup asks you during install):
+
+| `source` | Sync quality | Works with | Needs | Can run on a server 24/7 |
+|---|---|---|---|---|
+| `discord` (recommended) | **Exact** | Free or Premium Spotify (linked to Discord) | Join the [Lanyard server](https://discord.gg/lanyard), keep "Display Spotify as your status" on | ✅ |
+| `spotify` | **Exact** | Spotify **Premium only** (2026 API rules) | A Spotify Developer app + one-time auth | ✅ |
+| `smtc` | **Exact** | **Any** player on your Windows PC (free Spotify, YouTube Music, browsers...) | `pip install winsdk`; must run on the PC that plays the music; no album art | ❌ local only |
+| `lastfm` | **Approximate** (Last.fm gives no playback position; lyrics are estimated) | Anything that scrobbles to Last.fm | Free [Last.fm API key](https://www.last.fm/api/account/create) + username | ✅ |
+
+> ⚠️ **About Spotify Premium:** since February 2026 Spotify gates its Web API behind Premium, which
+> is why the `spotify` source needs it. Free-Spotify users should pick `discord` (same exact sync,
+> no Spotify keys needed at all) or `lastfm`/`smtc`.
 - Windows is fully supported (including hidden background mode); the core script is cross-platform
 
 ### 1. Get the code
@@ -95,16 +109,17 @@ Follow **[SETUP.md, Parts 1-7](SETUP.md)**: create a Discord application, unlock
 design the widget, authorize it, and copy your **Application ID**, **User ID**, and **Bot token**
 into `config.json`.
 
-### 5. Connect Spotify
+### 5. Connect your music source
 
-Follow **[SETUP.md, Part 8](SETUP.md)**: create a free Spotify app, put its **Client ID** and
-**Client Secret** into `config.json`, then run the one-time auth helper:
+Set `source` in `config.json` and do that source's one-time step (full details in
+**[SETUP.md, Part 8](SETUP.md)**):
 
-```bash
-python get_spotify_token.py
-```
-
-A browser opens once to authorize; it writes your refresh token into `config.json` automatically.
+- **`discord`** (recommended): join the [Lanyard server](https://discord.gg/lanyard) and keep
+  "Display Spotify as your status" on. No keys needed.
+- **`spotify`** (Premium): create a Spotify Developer app, put its **Client ID/Secret** into
+  `config.json`, then run `python get_spotify_token.py` once.
+- **`smtc`** (Windows): `pip install winsdk`. Nothing else.
+- **`lastfm`** (approximate sync): put your **username** and free **API key** into `config.json`.
 
 ### 6. Run it
 
@@ -125,10 +140,11 @@ logon with no window.
 
 ### (Optional) Host it 24/7
 
-Because it reads playback from the Spotify **cloud** API (not your local app), Lyrically can run on a
-free server and keep your widget updating even when your PC is off. Secrets can be supplied via
-environment variables (`DISCORD_BOT_TOKEN`, `SPOTIFY_REFRESH_TOKEN`, and friends) so no secrets file
-sits on the host. See **[HOSTING.md](HOSTING.md)** for a secure, step-by-step Wispbyte walkthrough.
+The `discord`, `spotify` and `lastfm` sources read playback from cloud APIs, so Lyrically can run on
+a free server and keep your widget updating even when your PC is off (`smtc` is the one local-only
+source). Secrets can be supplied via environment variables (`DISCORD_BOT_TOKEN`,
+`SPOTIFY_REFRESH_TOKEN`, `LASTFM_API_KEY`, `LYRICALLY_SOURCE`, and friends) so no secrets file sits
+on the host. See **[HOSTING.md](HOSTING.md)** for a secure, step-by-step Wispbyte walkthrough.
 
 ## Configuration
 

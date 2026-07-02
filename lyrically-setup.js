@@ -7,9 +7,10 @@
  *  authorizes it, adds it to your profile, resets the bot token, opens the
  *  editor, and downloads a config.json filled with everything it collected.
  *
- *  You provide: an app name (optional) + your Spotify Client ID/Secret.
- *  It fetches automatically: Discord Application ID, your User ID, Bot token,
- *  and imports the full widget structure.
+ *  You provide: an app name (optional), your MUSIC SOURCE preference (Discord
+ *  presence / Spotify API / Windows media / Last.fm) and that source's keys if
+ *  it needs any. It fetches automatically: Discord Application ID, your User
+ *  ID, Bot token, and imports the full widget structure.
  *
  *  HOW TO RUN
  *    1. Open https://discord.com/developers/applications  (logged in)
@@ -60,21 +61,60 @@
 
   /* ---- 1) input form --------------------------------------------------- */
   const inputs = await new Promise((resolve) => {
-    body.append(el("div", "color:#9aa0b4", "You only need your Spotify keys. Discord app, bot token and the widget are created for you."));
+    body.append(el("div", "color:#9aa0b4", "The Discord app, widget and bot token are created for you. Pick where your music info should come from:"));
     body.append(label("App name (shown in the Developer Portal)"));
     const nameI = mkInput("Lyrically"); nameI.value = "Lyrically"; body.append(nameI);
-    body.append(label("Spotify Client ID"));
-    const idI = mkInput("from the Spotify dashboard"); body.append(idI);
-    body.append(label("Spotify Client Secret"));
-    const secI = mkInput("from the Spotify dashboard", "password"); body.append(secI);
-    const hint = el("div", "margin-top:8px;color:#8a90a4;font-size:12px");
-    hint.append("Get these at ", link("Spotify Developer Dashboard ↗", "https://developer.spotify.com/dashboard"),
-      " — create an app and add redirect URI ");
-    hint.append(el("code", "color:#e7e9f0", "http://127.0.0.1:8888/callback"), ". You can also leave these blank and fill config.json later.");
-    body.append(hint);
+
+    // --- music source picker (with accuracy labels) ---
+    body.append(label("Music source"));
+    const srcSel = document.createElement("select");
+    srcSel.style.cssText = "width:100%;box-sizing:border-box;background:#0f1420;border:1px solid #1c2030;border-radius:7px;padding:8px 9px;color:#e7e9f0;font:13px ui-sans-serif";
+    [["discord", "Discord presence - exact sync, FREE Spotify (recommended)"],
+     ["spotify", "Spotify Web API - exact sync, needs Spotify PREMIUM"],
+     ["smtc",    "Windows media (SMTC) - exact sync, any player, this PC only"],
+     ["lastfm",  "Last.fm - LESS ACCURATE (no position), any scrobbler"]]
+      .forEach(([v, t]) => { const o = document.createElement("option"); o.value = v; o.textContent = t; srcSel.appendChild(o); });
+    body.append(srcSel);
+
+    // --- per-source detail boxes (shown/hidden by the picker) ---
+    const box = (html) => { const d = el("div", "margin-top:8px;color:#8a90a4;font-size:12px;line-height:1.5"); d.style.display = "none"; body.append(d); return d; };
+
+    const discordBox = box();
+    discordBox.append("Reads your \"Listening to Spotify\" Discord status. Exact lyric sync, works with free Spotify, and can run 24/7 on a server. You need to: ");
+    discordBox.append(el("b", "color:#e7e9f0", "1) "), "join ", link("the Lanyard Discord server ↗", "https://discord.gg/lanyard"),
+      " with this account, and ", el("b", "color:#e7e9f0", "2) "),
+      "keep Settings -> Connections -> Spotify -> \"Display Spotify as your status\" ON. Note: pausing shows as 'nothing playing'.");
+
+    const spotifyBox = box();
+    spotifyBox.append("Exact sync straight from Spotify. Since Feb 2026 this REQUIRES Spotify Premium. Get keys at ",
+      link("the Spotify Developer Dashboard ↗", "https://developer.spotify.com/dashboard"),
+      " (create an app, add redirect URI ", el("code", "color:#e7e9f0", "http://127.0.0.1:8888/callback"), "):");
+    spotifyBox.append(label("Spotify Client ID"));
+    const idI = mkInput("from the Spotify dashboard"); spotifyBox.append(idI);
+    spotifyBox.append(label("Spotify Client Secret"));
+    const secI = mkInput("from the Spotify dashboard", "password"); spotifyBox.append(secI);
+
+    const smtcBox = box();
+    smtcBox.append("Reads whatever this Windows PC is playing (any app: free Spotify, YouTube Music, browsers). Exact sync. Limits: Windows only, must run on the PC that plays the music (no server hosting), and no album art (your widget's fallback image shows). Extra install: ",
+      el("code", "color:#e7e9f0", "pip install winsdk"), ".");
+
+    const lastfmBox = box();
+    lastfmBox.append("Works with anything that scrobbles to Last.fm (free Spotify included) and can run 24/7. Trade-off: Last.fm reports no playback position, so lyrics are APPROXIMATE (timer starts when a track is detected; seeks/late joins drift). Get a free API key at ",
+      link("last.fm/api/account/create ↗", "https://www.last.fm/api/account/create"), ":");
+    lastfmBox.append(label("Last.fm username"));
+    const lfUserI = mkInput("your Last.fm username"); lastfmBox.append(lfUserI);
+    lastfmBox.append(label("Last.fm API key"));
+    const lfKeyI = mkInput("from last.fm/api", "password"); lastfmBox.append(lfKeyI);
+
+    const boxes = { discord: discordBox, spotify: spotifyBox, smtc: smtcBox, lastfm: lastfmBox };
+    const showBox = () => Object.entries(boxes).forEach(([k, b]) => b.style.display = (k === srcSel.value ? "block" : "none"));
+    srcSel.onchange = showBox; showBox();
+
     const go = btn("Start setup ▶");
     go.onclick = () => { go.disabled = true; body.innerHTML = "";
-      resolve({ appName: (nameI.value || "Lyrically").trim(), spotifyId: idI.value.trim(), spotifySecret: secI.value.trim() }); };
+      resolve({ appName: (nameI.value || "Lyrically").trim(), source: srcSel.value,
+                spotifyId: idI.value.trim(), spotifySecret: secI.value.trim(),
+                lastfmUser: lfUserI.value.trim(), lastfmKey: lfKeyI.value.trim() }); };
     body.append(go);
   });
 
@@ -202,36 +242,68 @@
     try { await api.patch({ url: `/applications/${appId}`, body: { redirect_uris: ["https://discord.com"] } }); ok(); }
     catch (e) { warn("Redirect URI not set. (" + describeErr(e) + ")"); }
 
-    step("Authorizing the widget scope…");
+    step("Authorizing the widget scopes…");
+    // Try the FULL social-layer grant first (openid + sdk.social_layer, what the manual
+    // flow uses and what profile-adds appear to require), then fall back to the
+    // narrower presence scope if Discord rejects the combination.
     let authorized = false;
-    for (let attempt = 1; attempt <= 3 && !authorized; attempt++) {
-      try {
-        await api.post({ url: `/oauth2/authorize?client_id=${appId}&response_type=token&scope=sdk.social_layer_presence`, body: { authorize: true } });
-        authorized = true;
-      } catch (e) {
-        if (attempt === 3) warn("Auto-authorize failed. (" + describeErr(e) + ") Use the Authorize link on the final card instead.");
-        else await new Promise(r => setTimeout(r, 2500));   // SDK provisioning can lag - retry
+    const scopeSets = ["openid sdk.social_layer", "sdk.social_layer_presence"];
+    for (const scopes of scopeSets) {
+      for (let attempt = 1; attempt <= 2 && !authorized; attempt++) {
+        try {
+          await api.post({ url: `/oauth2/authorize?client_id=${appId}&response_type=token&scope=${encodeURIComponent(scopes)}`, body: { authorize: true } });
+          authorized = true;
+        } catch (e) {
+          if (scopes === scopeSets[scopeSets.length - 1] && attempt === 2)
+            warn("Auto-authorize failed. (" + describeErr(e) + ") Use the Authorize link on the final card instead.");
+          else await new Promise(r => setTimeout(r, 2000));   // SDK provisioning can lag - retry
+        }
       }
+      if (authorized) break;
     }
     if (authorized) ok();
-
-    step("Adding the widget to your profile…");
-    try {
-      const profile = await api.get({ url: `/users/${userId}/profile` });
-      const widgets = profile.body.widgets || [];
-      if (widgets.some(w => w && w.data && w.data.application_id === appId)) {
-        warn("Already on your profile - skipped (no duplicate).");
-      } else {
-        widgets.unshift({ data: { type: "application", application_id: appId } });
-        await api.put({ url: `/users/@me/widgets`, body: { widgets } });
-        ok();
-      }
-    } catch (e) { warn("Couldn't add it to your profile - see SETUP.md Part 10. (" + describeErr(e) + ")"); }
 
     step("Resetting the bot token (enter 2FA if prompted)…");
     let botToken = "PASTE_BOT_TOKEN_FROM_DEV_PORTAL";
     try { botToken = (await api.post({ url: `/applications/${appId}/bot/reset` })).body.token; ok(); }
     catch (e) { warn("Token reset failed - reset it on the app's Bot page and paste it into config.json. (" + describeErr(e) + ")"); }
+
+    // The blog's "Application Identities" step (the Invoke-RestMethod PATCH): the
+    // widget needs an identity for your user BEFORE it can attach/display right.
+    // widget.py does this on every push; we seed a blank one here so the
+    // profile-add below has something to attach to.
+    step("Issuing your widget identity…");
+    let identityIssued = false;
+    if (!botToken.startsWith("PASTE_")) {
+      try {
+        const ir = await fetch(`https://discord.com/api/v9/applications/${appId}/users/${userId}/identities/0/profile`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", "Authorization": "Bot " + botToken },
+          body: JSON.stringify({ username: inputs.appName, data: { dynamic: [] } }),
+        });
+        if (ir.ok) { identityIssued = true; ok(); }
+        else warn("Identity PATCH returned HTTP " + ir.status + " - running widget.py once does the same thing.");
+      } catch (e) { warn("Browser blocked the identity call - running widget.py once does the same thing. (" + describeErr(e) + ")"); }
+    } else warn("Skipped - no bot token.");
+
+    step("Adding the widget to your profile…");
+    let profileAdded = false;
+    try {
+      const profile = await api.get({ url: `/users/${userId}/profile` });
+      const widgets = profile.body.widgets || [];
+      if (widgets.some(w => w && w.data && w.data.application_id === appId)) {
+        profileAdded = true;
+        warn("Already on your profile - skipped (no duplicate).");
+      } else {
+        widgets.unshift({ data: { type: "application", application_id: appId } });
+        await api.put({ url: `/users/@me/widgets`, body: { widgets } });
+        profileAdded = true;
+        ok();
+      }
+    } catch (e) {
+      warn("Discord blocked the widget-add (" + describeErr(e) +
+           "). Fix on the final card below - follow its checklist.");
+    }
 
     step("Opening the widget editor…");
     ApexStore.createOverride("2026-03-widget-config-editor", 1);
@@ -245,11 +317,14 @@
 
     /* ---- 3) success card + config.json download ------------------------ */
     const config = {
+      source: inputs.source,
       discord: { application_id: appId, user_id: userId, bot_token: botToken, image_webhook_url: "" },
       spotify: { client_id: inputs.spotifyId || "YOUR_SPOTIFY_CLIENT_ID", client_secret: inputs.spotifySecret || "YOUR_SPOTIFY_CLIENT_SECRET",
                  redirect_uri: "http://127.0.0.1:8888/callback", refresh_token: "" },
+      lastfm: { username: inputs.lastfmUser || "", api_key: inputs.lastfmKey || "" },
+      discord_presence: { lanyard_url: "https://api.lanyard.rest" },
       options: { poll_interval_seconds: 3, tick_interval_seconds: 0.25, min_patch_interval_seconds: 0.5,
-                 rate_limit_reserve: 1, log_rate_limits: true, heartbeat_seconds: 0,
+                 pacing: "smooth", rate_limit_reserve: 1, log_rate_limits: true, heartbeat_seconds: 0,
                  username_format: "{track} — {artist}", no_lyrics_text: "♪", instrumental_text: "♪ Instrumental ♪", show_when_paused: true } };
 
     const card = el("div", "margin-top:12px;padding:10px;background:#08120c;border:1px solid #14c46c;border-radius:10px");
@@ -258,21 +333,72 @@
     const dl = btn("⬇ Download config.json");
     dl.onclick = () => { const a = el("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(config, null, 2)], { type: "application/json" })); a.download = "config.json"; a.click(); };
     card.append(dl);
-    if (!authorized) {  // manual fallback when the API authorize call failed
+    if (!authorized || !profileAdded) {  // manual re-authorize with the FULL scope set
       const authLink = el("a", `display:inline-block;margin:8px 6px 0 0;padding:8px 14px;border-radius:8px;
-        background:#e0a96d;color:#1a1206;font:600 12px/1 ui-sans-serif;text-decoration:none`, "Authorize widget scope ↗");
-      authLink.href = `https://discord.com/oauth2/authorize?client_id=${appId}&response_type=token&scope=sdk.social_layer_presence`;
+        background:#e0a96d;color:#1a1206;font:600 12px/1 ui-sans-serif;text-decoration:none`, "Authorize full widget scopes ↗");
+      authLink.href = `https://discord.com/oauth2/authorize?client_id=${appId}&response_type=token&scope=openid+sdk.social_layer`;
       authLink.target = "_blank"; authLink.rel = "noreferrer";
       card.append(authLink);
     }
+    if (!profileAdded) {
+      // Ready-made client-console snippet (rerun-safe IIFE) with the app id baked in.
+      const addSnippet = `(async()=>{let m=webpackChunkdiscord_app.push([[Symbol()],{},e=>e.c]);webpackChunkdiscord_app.pop();
+const f=(...p)=>{for(let x of Object.values(m))try{if(!x.exports||x.exports===window)continue;if(p.every(k=>x.exports?.[k]))return x.exports;for(let e in x.exports)if(p.every(k=>x.exports?.[e]?.[k])&&"IntlMessagesProxy"!==x.exports[e][Symbol.toStringTag])return x.exports[e]}catch{}};
+const api=f("Bo","Cu").Bo,uid=f("getCurrentUser").getCurrentUser().id,appId="${appId}";
+const ws=(await api.get("/users/"+uid+"/profile")).body.widgets||[];
+if(ws.some(w=>w?.data?.application_id===appId)){console.log("[Lyrically] Already on your profile.");}
+else{ws.unshift({data:{type:"application",application_id:appId}});
+await api.put({url:"/users/@me/widgets",body:{widgets:ws}});
+console.log("[Lyrically] Widget added to your profile \\u2713");}})();`;
+      const profBox = el("div", "margin-top:10px;padding:8px;background:#1a1408;border:1px solid #e0a96d;border-radius:8px;color:#e7d9b8;font-size:12px;line-height:1.5");
+      profBox.append(el("b", null, "Add it to your profile - do these IN ORDER: "));
+      if (identityIssued) {
+        profBox.append("Your widget identity was issued ✓. ");
+      } else {
+        profBox.append("1) Issue your widget identity: run ", el("code", "color:#e7e9f0", "python widget.py"),
+          " once with config.json in place and music playing - or click \"Copy PowerShell identity command\" below and run it in a PowerShell window. ");
+      }
+      profBox.append((identityIssued ? "Then: " : "2) "), "click \"Copy profile-add snippet\", open ",
+        (() => { const a = el("a", "color:#14c46c", "discord.com/channels/@me"); a.href = "https://discord.com/channels/@me"; a.target = "_blank"; a.rel = "noreferrer"; return a; })(),
+        " in a browser, press F12 -> Console, paste, Enter. ",
+        "Still HTTP 401? Click \"Authorize full widget scopes\" on this card, then paste again.");
+      const cpy = btn("Copy profile-add snippet", "#e0a96d");
+      cpy.onclick = () => { navigator.clipboard.writeText(addSnippet); cpy.textContent = "Copied ✓"; setTimeout(() => cpy.textContent = "Copy profile-add snippet", 1500); };
+      profBox.append(el("div"), cpy);
+      if (!identityIssued && !botToken.startsWith("PASTE_")) {
+        // The blog's manual identity step, pre-filled (blank identity; widget.py
+        // fills real data on every push afterwards).
+        const psCmd = `Invoke-RestMethod -Uri https://discord.com/api/v9/applications/${appId}/users/${userId}/identities/0/profile `
+          + `-Method PATCH -Headers @{"Content-Type"="application/json"; "Authorization"="Bot ${botToken}"; `
+          + `"User-Agent"="DiscordBot (https://github.com/discord/discord-api-docs, 1.0.0)"} `
+          + `-Body '{"username":"${inputs.appName.replace(/"/g, "")}","data":{"dynamic":[]}}'`;
+        const psBtn = btn("Copy PowerShell identity command", "#1c2030");
+        psBtn.style.color = "#e7e9f0";
+        psBtn.onclick = () => { navigator.clipboard.writeText(psCmd); psBtn.textContent = "Copied ✓"; setTimeout(() => psBtn.textContent = "Copy PowerShell identity command", 1500); };
+        profBox.append(psBtn);
+      }
+      card.append(profBox);
+    }
     const next = el("div", "margin-top:10px;color:#9aa0b4;font-size:12px");
-    next.append("Next: put config.json in your Lyrically folder, ");
-    if (!inputs.spotifyId) next.append("fill in your Spotify keys, ");
-    next.append("make sure your Spotify app has redirect URI ");
-    next.append(el("code", "color:#e7e9f0", "http://127.0.0.1:8888/callback"), ", then run ");
+    next.append("Next: put config.json in your Lyrically folder, then run ");
     next.append(el("code", "color:#e7e9f0", "pip install -r requirements.txt"), ", ");
-    next.append(el("code", "color:#e7e9f0", "python get_spotify_token.py"), " and ");
+    if (inputs.source === "spotify") {
+      if (!inputs.spotifyId) next.append("fill your Spotify keys into config.json, ");
+      next.append("make sure your Spotify app has redirect URI ");
+      next.append(el("code", "color:#e7e9f0", "http://127.0.0.1:8888/callback"), ", run ");
+      next.append(el("code", "color:#e7e9f0", "python get_spotify_token.py"), " once, and finally ");
+    } else if (inputs.source === "discord") {
+      next.append("join ", link("the Lanyard server ↗", "https://discord.gg/lanyard"),
+        " with this account, keep \"Display Spotify as your status\" ON (Settings -> Connections), then run ");
+    } else if (inputs.source === "smtc") {
+      next.append(el("code", "color:#e7e9f0", "pip install winsdk"),
+        ", play music on THIS PC, then run ");
+    } else if (inputs.source === "lastfm") {
+      if (!inputs.lastfmUser || !inputs.lastfmKey) next.append("fill your Last.fm username + API key into config.json, ");
+      next.append("make sure your player scrobbles to Last.fm, then run ");
+    }
     next.append(el("code", "color:#e7e9f0", "python widget.py"), ". The widget editor is open in this tab.");
+    if (inputs.source === "lastfm") next.append(" Reminder: Last.fm sync is approximate (no position data).");
     card.append(next); body.appendChild(card); body.scrollTop = body.scrollHeight;
     console.log("[Lyrically] Setup complete. App:", appId);
   } catch (err) { fail(err); console.error("[Lyrically] Setup failed:", err); }
